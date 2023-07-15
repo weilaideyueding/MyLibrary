@@ -1,0 +1,335 @@
+#ifndef WEILAI_LIBRARY
+#define WEILAI_LIBRARY
+
+#include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+#include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/DeclareNormalsTexture.hlsl"
+#include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/DeclareDepthTexture.hlsl"
+
+// 重构世界坐标
+float3 RebuildWorldPosition(float2 screenPos, half depth)
+{
+    // 重构NDC空间坐标，unity采用OpenGL，NDC范围为（-1， 1）
+    float4 positionNDC = float4(screenPos * 2 - 1, depth, 1);
+
+    // 使用逆矩阵获得
+    float4 positionWS = mul(UNITY_MATRIX_I_VP, positionNDC);
+    // 再次齐次除法？
+    positionWS /= positionWS.w;
+
+    // 输出
+    return positionWS.xyz;
+}
+
+
+
+
+// 光照处理
+float LightingSpecular(float3 L, float3 N, float3 V, float smoothness)
+{
+    float3 H = SafeNormalize(float3(L) + float3(V));
+    float NdotH = saturate(dot(N, H));
+    return pow(NdotH, smoothness);
+}
+
+
+
+
+// 噪声
+
+float rand(float3 co)
+{
+    return frac(sin(dot(co.xyz, float3(12.9898, 78.233, 53.539))) * 43758.5453);
+}
+
+float PerlinNoise(float2 st, int seed)
+{
+    st.y += _Time[1];
+	
+    float2 p = floor(st);
+    float2 f = frac(st);
+	
+    float w00 = dot(rand(float3(p, seed)), f);
+    float w10 = dot(rand(float3(p + float2(1, 0), seed)), f - float2(1, 0));
+    float w01 = dot(rand(float3(p + float2(0, 1), seed)), f - float2(0, 1));
+    float w11 = dot(rand(float3(p + float2(1, 1), seed)), f - float2(1, 1));
+		
+    float2 u = f * f * (3 - 2 * f);
+	
+    return lerp(lerp(w00, w10,u.x), lerp(w01, w11, u.x), u.y);
+}
+
+
+
+// 模糊
+
+// 粒状模糊 暂未完成
+half2 GrainyBlur(half _BlueIteration)
+{
+    float random = sin(dot(float2(0.5, 0.5), half2(1233.224, 1743.335)));
+    half2 offset;
+                
+    for (float k = 0; k < _BlueIteration; k++)  // 进行循环模糊
+        {
+        random = frac(43758.5453 * random + 0.61432);   // 随机值
+        offset.x = (random - 0.5) * 2.0;                // 映射至（-1， 1）
+        random = frac(43758.5453 * random + 0.61432);
+        offset.y = (random - 0.5) * 2.0;
+        }
+    return offset;
+}
+
+
+
+
+
+
+
+
+
+
+
+//边缘检测
+
+// Sobel算子边缘检测
+half SobelEdge(Texture2D tex, SamplerState sampler_tex, float2 uv[9])
+{
+    // 卷积核
+    half SobelGx[9] = {-1, -2, -1,
+                        0,  0,  0,
+                        1,  2,  1};
+
+    half SobelGy[9] = {-1, 0, 1,
+                       -2, 0, 2,
+                       -1, 0, 1};
+
+    // 一个数组储存
+    half depth[2] = {0,0};
+
+    for (int index = 0; index <= 8; index++)
+    {
+        // 采样该点下的深度值
+        half d = SAMPLE_TEXTURE2D_X(tex, sampler_tex, uv[index]).r;
+        d = Linear01Depth(d, _ZBufferParams);
+                    
+        depth[0] += d * SobelGx[index];
+        depth[1] += d * SobelGy[index];
+                    
+    }
+
+    // 需要绝对值的相加
+    half depthDiff = abs(depth[0]) + abs(depth[1]);
+    return depthDiff;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// 水体渲染相关
+
+// 正弦波
+float3 SinWave(float3 worldPos, half2 Direction, half Amplitude, half Wavelength, half WaveSpeed)
+{
+    // 波长
+    half k = 2 * PI / Wavelength;
+    half2 d = normalize(Direction);
+    // 函数主体
+    half f = k * (dot(d, worldPos.xz) - WaveSpeed * _Time.y);
+    // 振幅和正弦实现
+    worldPos.y = Amplitude * sin(f);
+
+    // 法线还没实现
+    
+    return worldPos;
+}
+
+// Gerstner 结构体
+struct GerstnerWaveStruct
+{
+    // 坐标的X,Z轴需要用原来的加上这个，需要锚定在原来的坐标上
+    float3 worldPos;
+    float3 tangent;
+    float3 binormal;
+    float3 normal;
+};
+
+// Gerstner 波
+// 在外面，将normal的值设为(0,1,0)
+GerstnerWaveStruct GerstnerWave (float3 worldPos, half2 Direction, half Wavelength, half Steepness)
+{
+    float3 P,B,T,N;
+    // 波长
+    float k = 2 * PI / Wavelength;
+    // 相位常量 除法和除法好像都行，乘法会让波慢一些
+    float c = sqrt(9.8 * k);
+    // 方向
+    half2 d = normalize(Direction);
+    // 函数主体
+    float f = k * dot(d, worldPos.xz) - c * _Time.y;
+    // 陡度
+    float s = Steepness;
+    // 振幅
+    half a = s / k;
+            	
+    // Gerstner 波实现
+    P.x = a * d.x * cos(f);
+    P.y = a * sin(f);
+    P.z = a * d.y * cos(f);
+
+    T.x = d.x * d.x * k * a * -sin(f);
+    T.y = d.x * k * a * cos(f);
+    T.z = d.x * d.y * k * a * -sin(f);
+
+    B.x = d.x * d.y * k * a * -sin(f);
+    B.y = d.y * k * a * cos(f);
+    B.z = d.y * d.y * k * a * -sin(f);
+
+    N.x = d.x * a * k * -cos(f);
+    N.y = k * a * -sin(f);
+    N.z = d.y * k * a * -cos(f);
+    
+    GerstnerWaveStruct g;
+    g.worldPos = P;
+    g.tangent = float3(1 + T.x, T.y, T.z);
+    g.binormal = float3(B.x, B.y, 1 + B.z);
+    g.normal = float3(N.x, 1 + N.y, N.z);
+    
+    return g;
+}
+
+// 加入了速度控制
+GerstnerWaveStruct GerstnerWave (float3 worldPos, half2 Direction, half Wavelength, half Steepness, half Speed)
+{
+    float3 P,B,T,N;
+    // 波长
+    float k = 2 * PI / Wavelength;
+    // 相位常量 除法和除法好像都行，乘法会让波慢一些
+    float c = sqrt(9.8 * k);
+    // 方向
+    half2 d = normalize(Direction);
+    // 函数主体
+    float f = k * dot(d, worldPos.xz) - c * _Time.y * Speed;
+    // 陡度
+    float s = Steepness;
+    // 振幅
+    half a = s / k;
+            	
+    // Gerstner 波实现
+    P.x = a * d.x * cos(f);
+    P.y = a * sin(f);
+    P.z = a * d.y * cos(f);
+
+    T.x = d.x * d.x * k * a * -sin(f);
+    T.y = d.x * k * a * cos(f);
+    T.z = d.x * d.y * k * a * -sin(f);
+
+    B.x = d.x * d.y * k * a * -sin(f);
+    B.y = d.y * k * a * cos(f);
+    B.z = d.y * d.y * k * a * -sin(f);
+
+    N.x = d.x * a * k * -cos(f);
+    N.y = k * a * -sin(f);
+    N.z = d.y * k * a * -cos(f);
+    
+    GerstnerWaveStruct g;
+    g.worldPos = P;
+    g.tangent = float3(1 + T.x, T.y, T.z);
+    g.binormal = float3(B.x, B.y, 1 + B.z);
+    g.normal = float3(N.x, 1 + N.y, N.z);
+    
+    return g;
+}
+
+// 多波混合 未完成参数的插值
+GerstnerWaveStruct GerstnerWaveGroup (float3 worldPos, uint amount, half2 Direction, half Wavelength, half Steepness)
+{
+    float3 P,B,T,N;
+
+    for (uint i = 0; i < amount; i++)
+    {
+        // 波长
+        float k = 2 * PI / Wavelength;
+        // 相位常量 除法和除法好像都行，乘法会让波慢一些
+        float c = sqrt(9.8 * k);
+        // 方向
+        half2 d = normalize(Direction);
+        // 函数主体
+        float f = k * dot(d, worldPos.xz) - c * _Time.y;
+        // 陡度
+        float s = Steepness;
+        // 振幅
+        half a = s / k;
+            	
+        // Gerstner 波实现
+        P.x += a * d.x * cos(f);
+        P.y += a * sin(f);
+        P.z += a * d.y * cos(f);
+
+        // 使用了两种获得法线的方法，BT叉乘或者直接获得N都可以
+        T.x += d.x * d.x * k * a * -sin(f);
+        T.y += d.x * k * a * cos(f);
+        T.z += d.x * d.y * k * a * -sin(f);
+
+        B.x += d.x * d.y * k * a * -sin(f);
+        B.y += d.y * k * a * cos(f);
+        B.z += d.y * d.y * k * a * -sin(f);
+
+        N.x += d.x * a * k * -cos(f);
+        N.y += k * a * -sin(f);
+        N.z += d.y * k * a * -cos(f);
+    }
+    
+    GerstnerWaveStruct g;
+
+    // 进行最后的混合
+    g.worldPos = float3(worldPos.x + P.x, P.y, worldPos.z + P.z);
+    g.tangent = float3(1 + T.x, T.y, T.z);
+    g.binormal = float3(B.x, B.y, 1 + B.z);
+    g.normal = float3(N.x, 1 + N.y, N.z);
+    
+    return g;
+}
+
+// 函数公式
+
+float RemapRange(float value, float minSrc, float maxSrc, float minDst, float maxDst)
+{
+    // 将源范围的值映射到0-1的范围
+    float normalizedValue = (value - minSrc) / (maxSrc - minSrc);
+    
+    // 将0-1的范围映射到目标范围
+    float mappedValue = minDst + normalizedValue * (maxDst - minDst);
+    
+    return mappedValue;
+}
+
+// 风格化处理
+
+// 色调分离
+float3 Posterize(half3 col, int step)
+{
+    return floor(col*step) / (step-1);
+}
+
+float4 Posterize(half4 col, int step)
+{
+    return floor(col*step) / (step-1);
+}
+
+
+
+
+
+
+#endif
