@@ -1,171 +1,79 @@
-using System;
+using System.Collections;
+using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
-using WeilaiLibrary;
 
-[Serializable]
-public class WaterShaderGUI : ShaderGUI
+namespace WeilaiLibrary
 {
-    private Material target;
-    private MaterialEditor editor;
-    private MaterialProperty[] properties;
-
-    private bool isShowTex, isShowTess, isShowCol, isShowWave, isShowFoam;
-
-    private int waveAmount = 0;
- 
-    public enum ColorSelect
+    public class MyShaderGUI : ShaderGUI
     {
-        custom,function
-    }
-    
-    
-    public override void OnGUI(MaterialEditor materialEditor, MaterialProperty[] properties)
-    {
-        editor = materialEditor;
-        this.properties = properties;
-        target = materialEditor.target as Material;
-        
-        DrawTex();
-        GUILayout.Space(5);
-        DrawTesselation();
-        GUILayout.Space(5);
-        DrawColor();
-        GUILayout.Space(5);
-        DrawWave();
-        GUILayout.Space(5);
-        DrawFoam();
-        
-        // base.OnGUI(materialEditor, properties);
-    }
-
-    void DrawTex()
-    {
-        MaterialProperty _FoamMap = FindProperty("_FoamMap", properties);
-        MaterialProperty _NoiseMap = FindProperty("_NoiseMap", properties);
-
-        MaterialProperty _NoiseMap_ST = FindProperty("_NoiseMap_ST", properties);
-
-        // 创建一个可以保存状态的 FoldoutHeaderGroup
-        isShowTex = MyShaderGUI.FoldoutHeaderGroup(target, isShowTex, "_isShowTex", "Texture");
-        
-        if (isShowTex)
+        // 一个简便的控制Keyworld的方法
+        void IsKeyworldEnable(Material target, string keyworld, bool statu)
         {
-            editor.TexturePropertySingleLine(new GUIContent("Foam Map"), _FoamMap);
-            editor.TexturePropertySingleLine(new GUIContent("Noise Map", "XY: Scale  ZW:Offset"), _NoiseMap, _NoiseMap_ST);
-        }
-        EditorGUILayout.EndFoldoutHeaderGroup();
-    }
-
-    void DrawTesselation()
-    {
-        MaterialProperty _TessellationEdgeLength = FindProperty("_TessellationEdgeLength", properties);
-
-        isShowTess = MyShaderGUI.FoldoutHeaderGroup(target, isShowTess, "_isShowTess", "Tesselation");
-
-        if (isShowTess)
-        {
-            editor.RangeProperty(_TessellationEdgeLength, "Tessellation Edge Length");
-        }
-    }
-    
-    void DrawColor()
-    {
-
-        MaterialProperty _TopColor = FindProperty("_TopColor", properties);
-        MaterialProperty _BottomCol = FindProperty("_BottomCol", properties);
-        MaterialProperty _DepthIntensity = FindProperty("_DepthIntensity", properties);
-        
-        ColorSelect colSelect = ColorSelect.function;
-
-        // 获取Shader中保存的值
-        isShowCol = target.GetInt("_isShowCol") == 1 ? true : false;
-        
-        EditorGUI.BeginChangeCheck();
-        isShowCol = EditorGUILayout.BeginFoldoutHeaderGroup(isShowCol, "Water Color");
-        
-        if (EditorGUI.EndChangeCheck())
-        {
-            // 将这个值保存至Shader中
-            target.SetInt("_isShowCol", isShowCol ? 1 : 0);
-        }
-        
-        EditorGUILayout.EndFoldoutHeaderGroup();
-
-        if (isShowCol)
-        {
-            // 需要从Shader中去获得状态
-            if (target.IsKeywordEnabled("_CUSTOM_WATER_COLOR"))
+            if (statu)
             {
-                colSelect = ColorSelect.custom;
+                target.EnableKeyword(keyworld);
             }
             else
             {
-                colSelect = ColorSelect.function;
+                target.DisableKeyword(keyworld);
             }
-            
-            colSelect = (ColorSelect)EditorGUILayout.EnumPopup("选择水的颜色渐变方式", colSelect);
-            
-            // 判断关键字
-            IsKeyworldEnable("_CUSTOM_WATER_COLOR", colSelect == ColorSelect.custom);
-            IsKeyworldEnable("_FUNCTION_WATER_COLOR", colSelect == ColorSelect.function);
-
-            EditorGUI.indentLevel++;
-            if (colSelect == ColorSelect.custom)
-            {
-                editor.ColorProperty(_TopColor, "Top Color");
-                editor.ColorProperty(_BottomCol, "Bottom Color");
-            }
-            EditorGUI.indentLevel--;
-
-            editor.RangeProperty(_DepthIntensity, "Depth Threshold");
         }
-    }
 
-    // 可以根据波浪数量，进行GUI变换
-    void DrawWave()
-    {
-        MaterialProperty _WaveA = FindProperty("_WaveA", properties);
-        MaterialProperty _WaveB = FindProperty("_WaveB", properties);
-        MaterialProperty _WaveC = FindProperty("_WaveC", properties);
+        // 一个能够保存值的折叠标签组
+        public static bool FoldoutHeaderGroup(Material target, bool isShow, string ShaerProperty, string name)
+        {
+            // 获取Shader中保存的值
+            isShow = target.GetInt(ShaerProperty) == 1 ? true : false;
         
-        isShowWave = MyShaderGUI.FoldoutHeaderGroup(target, isShowWave, "_isShowWave", new GUIContent("Wave", "XY：浪方向，Z：陡度，W：波长"));
-        if (isShowWave)
+            EditorGUI.BeginChangeCheck();
+            isShow = EditorGUILayout.BeginFoldoutHeaderGroup(isShow, name);
+        
+            if (EditorGUI.EndChangeCheck())
+            {
+                // 将这个值保存至Shader中
+                target.SetInt(ShaerProperty, isShow ? 1 : 0);
+            }
+            
+            EditorGUILayout.EndFoldoutHeaderGroup();
+
+            return isShow;
+        }
+        
+        // Content版本
+        public static bool FoldoutHeaderGroup(Material target, bool isShow, string ShaerProperty, GUIContent content)
         {
-            // waveAmount = EditorGUILayout.IntSlider("Wave Amount", waveAmount, 0, 5);
-            editor.VectorProperty(_WaveA, "Wave A");
-            editor.VectorProperty(_WaveB, "Wave B");
-            editor.VectorProperty(_WaveC, "Wave C");
+            // 获取Shader中保存的值
+            isShow = target.GetInt(ShaerProperty) == 1 ? true : false;
+        
+            EditorGUI.BeginChangeCheck();
+            isShow = EditorGUILayout.BeginFoldoutHeaderGroup(isShow, content);
+        
+            if (EditorGUI.EndChangeCheck())
+            {
+                // 将这个值保存至Shader中
+                target.SetInt(ShaerProperty, isShow ? 1 : 0);
+            }
+            
+            EditorGUILayout.EndFoldoutHeaderGroup();
+
+            return isShow;
         }
 
+
+        // 偷懒用，将属性名和 label存入对应的数组中，直接批量使用，说实话，也不怎么偷懒
+        public static void BatchShaderProperties(MaterialEditor editor,MaterialProperty[] properties, string[] property, string[] label)
+        {
+            for (int i = 0; i < property.Length; i++)
+            {
+                editor.ShaderProperty(FindProperty(property[i], properties), label[i]);
+            }
+        }
     }
 
-    void DrawFoam()
+
+    public class MyScript
     {
-        MaterialProperty _FoamThickness = FindProperty("_FoamThickness", properties);
-        MaterialProperty _FoamCol = FindProperty("_FoamCol", properties);
-
-        isShowFoam = MyShaderGUI.FoldoutHeaderGroup(target, isShowFoam, "_isShowFoam", "Foam");
-        if (isShowFoam)
-        {
-            editor.RangeProperty(_FoamThickness, "Foam Thickness");
-            editor.ColorProperty(_FoamCol, "Foam Color");
-        }
-
+        
     }
-    
-    
-    void IsKeyworldEnable(string keyworld, bool statu)
-    {
-        if (statu)
-        {
-            target.EnableKeyword(keyworld);
-        }
-        else
-        {
-            target.DisableKeyword(keyworld);
-        }
-    }
-    
-    
 }
