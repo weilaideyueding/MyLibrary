@@ -294,6 +294,47 @@ namespace WeiLai_Editor
 
     }
     
+    // 确认删除窗口
+    public class IsSureDeleteWindow : EditorWindow
+    {
+        private bool isConfirmed = false;
+        private GUIStyle _labelStyle;
+    
+        private void OnGUI()
+        {
+            _labelStyle = new GUIStyle(EditorStyles.boldLabel);
+            _labelStyle.alignment = TextAnchor.MiddleCenter;
+        
+            EditorGUILayout.LabelField("确定删除吗？", _labelStyle);
+
+            using (new EditorGUILayout.HorizontalScope("box"))
+            {
+                if (GUILayout.Button("直接删了"))
+                {
+                    isConfirmed = true;
+                    Close();
+                }
+
+                if (GUILayout.Button("手下留情"))
+                {
+                    isConfirmed = false;
+                    Close();
+                }
+            }
+
+        }
+    
+        public static bool ShowWindow()
+        {
+            IsSureDeleteWindow window = GetWindow<IsSureDeleteWindow>("Are You Sure?");
+            window.maxSize = new Vector2(200, 60);
+            window.minSize = window.maxSize;
+            window.ShowModal();
+
+            return window.isConfirmed;
+        }
+    }
+    
     
 }
 
