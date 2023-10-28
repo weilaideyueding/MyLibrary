@@ -128,5 +128,35 @@ namespace WeilaiLibrary
 
             return frustumCorners;
         }
+
+// Editor方法
+        // 替换文件内容
+        void ReplaceFileContentByRegex(string filePath, string source, string dest)
+        {
+            // 读取文件内容
+            string fileContent = File.ReadAllText(filePath);
+    
+            // 使用正则表达式查找并替换
+            string pattern = $"\\b{source}\\b";
+            string newContent = Regex.Replace(fileContent, pattern, dest);
+                    
+            // 将新内容编码为字节数组并写回文件
+            byte[] bytes = System.Text.Encoding.UTF8.GetBytes(newContent);  // 编码
+            File.WriteAllBytes(filePath, bytes);
+        }
+
+        void ReplaceFileContentByRegex_Free(string filePath, string source, string dest)
+        {
+            // 读取文件内容
+            string fileContent = File.ReadAllText(filePath);
+    
+            // 使用正则表达式查找并替换
+            string pattern = source;
+            string newContent = Regex.Replace(fileContent, pattern, dest);
+                    
+            // 将新内容编码为字节数组并写回文件
+            byte[] bytes = System.Text.Encoding.UTF8.GetBytes(newContent);  // 编码
+            File.WriteAllBytes(filePath, bytes);
+        }
     }
 }
